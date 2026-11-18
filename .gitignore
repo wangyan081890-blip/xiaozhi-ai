@@ -1,0 +1,17 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+runtime/
+data/
+*.db
+*.db-*
+config.env
+.env
+*.log
+*.part
+.tmp/
+tmp/
+tmp-*
+screenshots/
