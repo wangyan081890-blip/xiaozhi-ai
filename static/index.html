@@ -1,0 +1,150 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="description" content="小智 AI —— 在线 AI 助手，打开网页即可对话，支持多用户隔离与聊天记录保存。">
+    <title>小智 AI · 在线助手</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%233b82f6'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='43' font-size='32' text-anchor='middle' fill='white' font-family='sans-serif'%3E智%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/static/style.css?v=20261118e">
+</head>
+<body>
+<div class="app" id="app">
+    <div class="backdrop" id="backdrop"></div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <div class="brand-logo">智</div>
+            <div class="brand-text">
+                <div class="brand-name">小智 AI</div>
+                <div class="brand-sub">在线 AI 助手</div>
+            </div>
+        </div>
+
+        <button class="new-chat" id="new-chat" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            新建对话
+        </button>
+
+        <div class="history-head">最近对话</div>
+        <div class="history-list" id="history-list"></div>
+
+        <div class="sidebar-foot">
+            <div class="privacy">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+                对话内容仅你可见
+            </div>
+            <div class="version">小智 AI v2.0 · 云端在线</div>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="topbar">
+            <button class="icon-btn menu-btn" id="menu-btn" type="button" title="菜单">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+
+            <div class="topbar-title">
+                <h1 id="chat-title">新对话</h1>
+                <div class="status" id="status">
+                    <span class="dot" id="status-dot"></span>
+                    <span id="status-text">正在连接云端模型…</span>
+                </div>
+            </div>
+
+            <div class="topbar-actions">
+                <label class="switch" id="think-wrap" title="开启后模型会先思考再回答（更慢，但推理题更准）">
+                    <input type="checkbox" id="think-toggle">
+                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                    <span class="switch-label">深度思考</span>
+                </label>
+
+                <select id="model-select" class="model-select" title="选择模型"></select>
+
+                <button class="icon-btn" id="theme-btn" type="button" title="切换深色 / 浅色">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <div class="banner" id="banner" hidden>
+            <div class="banner-text" id="banner-text"></div>
+            <button class="banner-btn" id="banner-btn" type="button">重试连接</button>
+        </div>
+
+        <section class="chat-box" id="chat-box">
+            <div class="welcome" id="welcome">
+                <div class="welcome-logo">智</div>
+                <h2>你好，我是小智</h2>
+                <p>云端大模型驱动，打开网页即可对话。<br>会话相互隔离，聊天记录保存在云端。</p>
+
+                <div class="suggestions" id="suggestions">
+                    <button type="button" data-prompt="用 Python 写一个把文件夹里的图片批量压缩并重命名的脚本，并解释代码。">
+                        <span class="sug-icon">⌘</span>
+                        写一段 Python 脚本
+                    </button>
+                    <button type="button" data-prompt="用通俗易懂的方式解释一下：为什么天空是蓝色的？">
+                        <span class="sug-icon">?</span>
+                        解释一个科学问题
+                    </button>
+                    <button type="button" data-prompt="我是一个大学生，想用三个月时间入门机器学习。请帮我制定一份详细、可执行的学习计划。">
+                        <span class="sug-icon">◷</span>
+                        制定学习计划
+                    </button>
+                    <button type="button" data-prompt="帮我把下面这段话改得更通顺、更有说服力：我们公司最近推出了一款新产品，希望大家多多支持。">
+                        <span class="sug-icon">✎</span>
+                        润色一段文字
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <footer class="composer">
+            <div class="composer-inner">
+                <textarea id="message" rows="1" placeholder="给小智发送消息…" autocomplete="off"></textarea>
+                <div class="composer-bar">
+                    <span class="hint" id="composer-hint">Enter 发送 · Shift + Enter 换行</span>
+                    <button id="send-btn" class="send-btn" type="button" disabled title="发送">
+                        <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4 16-4.5-6.5L4 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                        <svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="disclaimer">小智由云端大模型驱动，回答可能不准确，请自行判断。</div>
+        </footer>
+    </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- 小智萌宠：站在输入框上方，可点 / 长按拖动 / 连点三下进游戏 -->
+<div class="mascot-wrap" id="mascot-wrap" aria-hidden="false">
+    <div class="mascot-bubble" id="mascot-bubble" hidden></div>
+    <div class="mascot-shadow" aria-hidden="true"></div>
+    <img class="mascot-img" id="mascot-img" src="/static/assets/mascot.png" alt="小智萌宠" draggable="false">
+</div>
+
+<!-- 跳台阶小游戏 -->
+<div class="game-layer" id="game-layer" hidden>
+    <canvas id="game-canvas"></canvas>
+    <div class="game-hud">
+        <div class="game-chip">得分 <b id="game-score">0</b></div>
+        <div class="game-chip">最佳 <b id="game-best">0</b></div>
+        <button class="game-exit" id="game-exit" type="button" title="退出游戏">✕</button>
+    </div>
+    <div class="game-panel" id="game-panel">
+        <div class="game-pet" aria-hidden="true"><img src="/static/assets/mascot.png" alt=""></div>
+        <h2 id="game-panel-title">小智跳台阶</h2>
+        <p id="game-panel-text">左右移动，踩着台阶一直往上跳。<br>掉下去就结束啦！</p>
+        <div class="game-panel-score" id="game-panel-score" hidden></div>
+        <div class="game-panel-actions">
+            <button class="game-btn" id="game-start" type="button">开始游戏</button>
+            <button class="game-btn ghost" id="game-back" type="button">回到聊天</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js?v=20261118e"></script>
+</body>
+</html>
