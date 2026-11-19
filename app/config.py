@@ -224,3 +224,38 @@ def _pick_default_provider() -> str:
 
 DEFAULT_PROVIDER = _pick_default_provider()
 DEFAULT_MODEL = PROVIDERS.get(DEFAULT_PROVIDER, {}).get("model", "")
+
+# ---------------------------------------------------------------------------
+# 账号与 AI 开发系统
+# ---------------------------------------------------------------------------
+ADMIN_USERNAMES = tuple(
+    name.strip() for name in _env("ADMIN_USERNAMES", "").split(",") if name.strip()
+)
+LOGIN_RATE_LIMIT = _env_int("LOGIN_RATE_LIMIT", 10)
+REGISTRATION_OPEN = _env_bool("REGISTRATION_OPEN", True)
+
+# AI 开发代理默认关闭，需显式 AGENT_ENABLED=true 才允许创建任务。
+AGENT_ENABLED = _env_bool("AGENT_ENABLED", False)
+AGENT_MAX_STEPS = _env_int("AGENT_MAX_STEPS", 18)
+AGENT_MAX_FILES = _env_int("AGENT_MAX_FILES", 8)
+AGENT_MAX_FILE_BYTES = _env_int("AGENT_MAX_FILE_BYTES", 60000)
+
+# GitHub：控制面用 token 创建分支/PR、读取 workflow 运行状态。
+GITHUB_API = _env("GITHUB_API", "https://api.github.com").rstrip("/")
+GITHUB_REPO = _env("GITHUB_REPO", "")  # owner/name
+GITHUB_TOKEN = _env("GITHUB_TOKEN", "")
+GITHUB_BRANCH = _env("GITHUB_BRANCH", "main")
+AGENT_WORKFLOW = _env("AGENT_WORKFLOW", "agent.yml")
+DEPLOY_WORKFLOW = _env("DEPLOY_WORKFLOW", "deploy.yml")
+
+# GitHub Actions 回调（agent → app）共用密钥 + 公网地址。
+APP_BASE_URL = _env("APP_BASE_URL", "").rstrip("/")
+DEV_CALLBACK_SECRET = _env("DEV_CALLBACK_SECRET", "")
+
+# Railway 部署 API（失败回滚、版本记录）。
+RAILWAY_API = _env("RAILWAY_API", "https://backboard.railway.app/graphql/v2")
+RAILWAY_TOKEN = _env("RAILWAY_TOKEN", "")
+RAILWAY_PROJECT_ID = _env("RAILWAY_PROJECT_ID", "")
+RAILWAY_ENVIRONMENT_ID = _env("RAILWAY_ENVIRONMENT_ID", "")
+RAILWAY_SERVICE_ID = _env("RAILWAY_SERVICE_ID", "")
+RAILWAY_PUBLIC_URL = _env("RAILWAY_PUBLIC_URL", "").rstrip("/")
