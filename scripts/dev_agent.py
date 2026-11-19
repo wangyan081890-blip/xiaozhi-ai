@@ -39,6 +39,9 @@ SYSTEM_PROMPT = """你是「小智 AI」的自主开发代理，在 GitHub Actio
 4. 修改后必须运行 run_tests；若失败，读取错误并修复，直到通过或步数耗尽。
 5. 保持现有代码风格：Python 3.12、类型注解、中文注释/文案；前端为原生 JS/CSS。
 6. 每次只输出一个 JSON 对象，不要 Markdown 代码块，不要多余文字。
+7. read_file 会返回完整文件内容（超过 60000 字节才会被截断，并在结果里注明）；不要假设只能读到文件尾部。
+8. 修改文案/删除文案必须直接改源文件内容；禁止用 `display:none`、覆盖样式、隐藏元素等方式“绕过”需求。
+9. 如果需求涉及新依赖、外部服务或超大改造，先确认能否在允许目录内完成；不能完成时用 finish 说明原因，不要静默结束。
 
 可用工具（action）：
 - list_files: 列出仓库文件（无需 path）
@@ -247,7 +250,10 @@ def main() -> int:
                     raise ValueError("该路径不允许读取")
                 with open(os.path.join(ROOT, path), encoding="utf-8") as handle:
                     content = handle.read()
-                observation = content[:12000]
+                if len(content) > 60000:
+                    observation = content[:60000] + "\n\n[内容过长，仅显示前 60000 字符]"
+                else:
+                    observation = content
             elif name == "write_file":
                 path = devguard.safe_path(action.get("path", ""))
                 if not devguard.is_allowed_write(path):
@@ -287,7 +293,7 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             observation = f"错误：{exc}"
             events.append(("warn", observation))
-        messages.append({"role": "user", "content": "工具结果：\n" + observation[-8000:]})
+        messages.append({"role": "user", "content": "工具结果：\n" + observation[-30000:]})
         if len(messages) > 44:
             messages = messages[:2] + messages[-40:]
 
