@@ -42,6 +42,9 @@ users = Table(
     "users",
     metadata,
     Column("id", String(64), primary_key=True),
+    Column("username", String(64), nullable=True),
+    Column("password_hash", Text, nullable=True),
+    Column("role", String(16), nullable=False, default="user"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("last_seen", DateTime(timezone=True), nullable=False),
 )
@@ -67,8 +70,54 @@ messages = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
+dev_tasks = Table(
+    "dev_tasks",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("user_id", String(64), nullable=False),
+    Column("title", Text, nullable=False),
+    Column("requirement", Text, nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("branch", String(128), nullable=True),
+    Column("pr_number", Integer, nullable=True),
+    Column("pr_url", Text, nullable=True),
+    Column("plan", Text, nullable=True),
+    Column("summary", Text, nullable=True),
+    Column("test_summary", Text, nullable=True),
+    Column("files_changed", Text, nullable=True),
+    Column("base_commit", String(64), nullable=True),
+    Column("error", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+dev_events = Table(
+    "dev_events",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("task_id", String(64), nullable=False),
+    Column("level", String(16), nullable=False),
+    Column("message", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+dev_versions = Table(
+    "dev_versions",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("task_id", String(64), nullable=True),
+    Column("commit_sha", String(64), nullable=True),
+    Column("deployment_id", String(64), nullable=True),
+    Column("status", String(24), nullable=False),
+    Column("note", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
 Index("ix_messages_session", messages.c.session_id, messages.c.id)
 Index("ix_sessions_user", sessions.c.user_id, sessions.c.updated_at)
+Index("ux_users_username", users.c.username, unique=True)
+Index("ix_dev_tasks_user", dev_tasks.c.user_id, dev_tasks.c.created_at)
+Index("ix_dev_events_task", dev_events.c.task_id, dev_events.c.id)
 
 
 def utcnow() -> datetime:
@@ -96,8 +145,52 @@ def get_engine() -> Engine:
 def init_db() -> None:
     engine = get_engine()
     metadata.create_all(engine)
+    _ensure_user_columns(engine)
     if DATABASE_URL.startswith("sqlite"):
         _migrate_legacy_sqlite(engine)
+
+
+def backup_tables(engine: Engine, names: tuple[str, ...] = ("users", "sessions", "messages")) -> list[str]:
+    """升级数据库结构前做表级快照（SQLite/PostgreSQL 通用）。
+
+    返回本次创建的备份表名，便于日志留痕。备份失败会抛异常，调用方必须先备份成功
+    再执行迁移，避免“迁移到一半无法回退”。
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    suffix = uuid.uuid4().hex[:6]
+    created: list[str] = []
+    with engine.begin() as conn:
+        existing = set(inspect(conn).get_table_names())
+        for name in names:
+            if name not in existing:
+                continue
+            backup = f"backup_{stamp}_{suffix}_{name}"
+            conn.execute(text(f'CREATE TABLE "{backup}" AS SELECT * FROM "{name}"'))
+            created.append(backup)
+    return created
+
+
+def _ensure_user_columns(engine: Engine) -> None:
+    """老库补列（账号体系），补列前先备份 users/sessions/messages。"""
+    wanted = [
+        ("username", "VARCHAR(64)"),
+        ("password_hash", "TEXT"),
+        ("role", "VARCHAR(16) NOT NULL DEFAULT 'user'"),
+    ]
+    with engine.connect() as conn:
+        columns = {col["name"] for col in inspect(conn).get_columns("users")}
+    missing = [(name, ddl) for name, ddl in wanted if name not in columns]
+    if missing:
+        created = backup_tables(engine)
+        if created:
+            print(f"[db] 结构升级前已备份：{', '.join(created)}", flush=True)
+        with engine.begin() as conn:
+            for name, ddl in missing:
+                conn.execute(text(f'ALTER TABLE users ADD COLUMN {name} {ddl}'))
+    with engine.begin() as conn:
+        conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users (username)")
+        )
 
 
 def _migrate_legacy_sqlite(engine: Engine) -> None:
@@ -368,3 +461,210 @@ def health() -> dict:
         return {"ok": True, "dialect": get_engine().dialect.name}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# 账号
+# ---------------------------------------------------------------------------
+def create_account(username: str, password_hash: str, role: str = "user") -> dict:
+    now = utcnow()
+    uid = uuid.uuid4().hex
+    with get_engine().begin() as conn:
+        conn.execute(
+            users.insert().values(
+                id=uid,
+                username=username,
+                password_hash=password_hash,
+                role=role,
+                created_at=now,
+                last_seen=now,
+            )
+        )
+    return {"user_id": uid, "username": username, "role": role, "created_at": now.isoformat()}
+
+
+def get_user(user_id: str) -> Optional[dict]:
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            select(
+                users.c.id,
+                users.c.username,
+                users.c.role,
+                users.c.created_at,
+                users.c.last_seen,
+            ).where(users.c.id == user_id)
+        ).first()
+    if not row:
+        return None
+    return {
+        "user_id": row[0],
+        "username": row[1],
+        "role": row[2] or "user",
+        "created_at": row[3],
+        "last_seen": row[4],
+    }
+
+
+def get_user_by_username(username: str) -> Optional[dict]:
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            select(users.c.id, users.c.username, users.c.password_hash, users.c.role).where(
+                func.lower(users.c.username) == username.lower()
+            )
+        ).first()
+    if not row:
+        return None
+    return {"user_id": row[0], "username": row[1], "password_hash": row[2], "role": row[3]}
+
+
+def count_accounts() -> int:
+    with get_engine().connect() as conn:
+        return int(
+            conn.execute(
+                select(func.count()).select_from(users).where(users.c.username.is_not(None))
+            ).scalar()
+            or 0
+        )
+
+
+def set_user_role(user_id: str, role: str) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(users.update().where(users.c.id == user_id).values(role=role))
+
+
+# ---------------------------------------------------------------------------
+# AI 开发任务
+# ---------------------------------------------------------------------------
+def new_task_id() -> str:
+    return uuid.uuid4().hex
+
+
+def create_dev_task(user_id: str, title: str, requirement: str, base_commit: str = "") -> dict:
+    now = utcnow()
+    task_id = new_task_id()
+    with get_engine().begin() as conn:
+        conn.execute(
+            dev_tasks.insert().values(
+                id=task_id,
+                user_id=user_id,
+                title=title[:120],
+                requirement=requirement,
+                status="queued",
+                base_commit=base_commit,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    add_dev_event(task_id, "info", "任务已创建，等待 AI 开发代理开始分析")
+    return get_dev_task(task_id) or {}
+
+
+def get_dev_task(task_id: str) -> Optional[dict]:
+    with get_engine().connect() as conn:
+        row = conn.execute(select(dev_tasks).where(dev_tasks.c.id == task_id)).first()
+    if not row:
+        return None
+    data = dict(row._mapping)
+    for key in ("created_at", "updated_at"):
+        if data.get(key):
+            data[key] = data[key].isoformat()
+    return data
+
+
+def list_dev_tasks(limit: int = 30) -> list[dict]:
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            select(dev_tasks).order_by(dev_tasks.c.created_at.desc()).limit(limit)
+        ).fetchall()
+    result = []
+    for row in rows:
+        data = dict(row._mapping)
+        for key in ("created_at", "updated_at"):
+            if data.get(key):
+                data[key] = data[key].isoformat()
+        result.append(data)
+    return result
+
+
+def update_dev_task(task_id: str, **fields) -> None:
+    allowed = {
+        "status",
+        "branch",
+        "pr_number",
+        "pr_url",
+        "plan",
+        "summary",
+        "test_summary",
+        "files_changed",
+        "base_commit",
+        "error",
+        "title",
+    }
+    values = {key: value for key, value in fields.items() if key in allowed}
+    values["updated_at"] = utcnow()
+    with get_engine().begin() as conn:
+        conn.execute(dev_tasks.update().where(dev_tasks.c.id == task_id).values(**values))
+
+
+def add_dev_event(task_id: str, level: str, message: str) -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            dev_events.insert().values(
+                task_id=task_id,
+                level=level[:16],
+                message=message[:8000],
+                created_at=utcnow(),
+            )
+        )
+
+
+def list_dev_events(task_id: str, limit: int = 200) -> list[dict]:
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            select(dev_events)
+            .where(dev_events.c.task_id == task_id)
+            .order_by(dev_events.c.id.asc())
+            .limit(limit)
+        ).fetchall()
+    return [
+        {
+            "id": row.id,
+            "level": row.level,
+            "message": row.message,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
+def add_dev_version(task_id: str | None, commit_sha: str | None, deployment_id: str | None, status: str, note: str = "") -> None:
+    with get_engine().begin() as conn:
+        conn.execute(
+            dev_versions.insert().values(
+                task_id=task_id,
+                commit_sha=commit_sha,
+                deployment_id=deployment_id,
+                status=status[:24],
+                note=note[:2000],
+                created_at=utcnow(),
+            )
+        )
+
+
+def list_dev_versions(limit: int = 40) -> list[dict]:
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            select(dev_versions).order_by(dev_versions.c.id.desc()).limit(limit)
+        ).fetchall()
+    return [
+        {
+            "id": row.id,
+            "task_id": row.task_id,
+            "commit_sha": row.commit_sha,
+            "deployment_id": row.deployment_id,
+            "status": row.status,
+            "note": row.note,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
