@@ -14,8 +14,9 @@ license: mit
 小智 AI 从「本机 Ollama」升级为可公网访问的多用户在线助手：浏览器打开网页即可对话，
 推理在云端调用在线大模型（OpenAI 兼容接口），聊天记录保存在云端数据库，按匿名用户隔离。
 
-> 本项目包含完整的云端部署产物（Dockerfile、docker-compose、Caddy HTTPS、PostgreSQL）。
-> 是否已经上线取决于是否在服务器上执行了部署；仓库本身不含任何真实 API Key。
+> **已上线**：<https://xiaozhi-ai-production.up.railway.app>（Railway + Neon PostgreSQL + DeepSeek）。
+> 仓库同时保留完整自托管产物（Dockerfile、docker-compose、Caddy HTTPS），可在自有服务器复现；
+> 仓库本身不含任何真实 API Key。
 
 ## 一、功能
 
@@ -26,7 +27,7 @@ license: mit
 - 连续对话：历史存 PostgreSQL（云端）或 SQLite（本地开发），重启不丢。
 - 前端：响应式聊天界面、Markdown/代码高亮、复制/重新生成/停止、深浅色主题。
 - 萌宠助手：点击互动、长按拖动、连点三下进入「小智跳台阶」小游戏（桌面与手机均可用）。
-- 运维：缓存控制、限流、并发保护、健康检查、Docker 自动重启、Caddy 自动 HTTPS。
+- 运维：缓存控制、限流、并发保护、健康检查；Railway 自动重启与 HTTPS（自托管时由 Docker + Caddy 负责）。
 
 ## 二、架构
 
@@ -34,13 +35,13 @@ license: mit
 浏览器（手机/电脑/平板）
         │ HTTPS
         ▼
-   Caddy 反向代理（自动证书）
-        │ HTTP :8000
+   Railway 边缘（自动 HTTPS）/ 或自托管 Caddy
+        │ HTTP :PORT
         ▼
- FastAPI 应用（uvicorn）──► 在线大模型 API（OpenAI 兼容）
+ FastAPI 应用（uvicorn）──► 在线大模型 API（OpenAI 兼容，当前 DeepSeek）
         │
         ▼
-   PostgreSQL 16（用户 / 会话 / 消息）
+   PostgreSQL（Neon 云库；自托管为 PG 16）
 ```
 
 ## 三、目录结构
@@ -66,9 +67,10 @@ xiaozhi-cloud/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Caddyfile
-├── render.yaml         # Render Blueprint
+├── render.yaml         # Render Blueprint（备用）
 ├── .env.example
-├── RENDER.md           # Render 免费部署教程（推荐）
+├── RAILWAY.md          # Railway 实际部署记录与复现步骤（当前线上方案）
+├── RENDER.md           # Render 部署教程（备用，需绑卡）
 ├── HUGGINGFACE.md      # HF Spaces 备选方案
 ├── DEPLOY.md           # 自有服务器部署教程
 ├── POSTGRES.md         # 数据库设计与迁移
@@ -174,16 +176,22 @@ python scripts/test_cloud.py --phase2
 
 ## 九、当前状态（诚实说明）
 
-- 代码、Docker/Compose/Caddy/PostgreSQL 部署配置已完成，并在本地用模拟在线接口
-  通过 phase1/phase2 端到端测试（含多用户隔离、重启后历史保留）。
-- 真实公网部署需要：一个托管平台账号（Render/HF 均免费）或云服务器，以及至少一个
-  在线模型 API Key。本机当前没有 Docker、没有云账号与 API Key，因此 **尚未部署到公网**。
-  拿到 Render/GitHub/DeepSeek 凭据后，按 [RENDER.md](RENDER.md) 约 10 分钟即可上线。
+- **已部署到公网**（2026-11-19）：<https://xiaozhi-ai-production.up.railway.app>
+  - 平台：Railway 免费 Web 服务（Docker，新加坡区，自动 HTTPS，域名 `*.up.railway.app`）
+  - 数据库：Neon 免费 PostgreSQL（`sslmode=require`），会话与消息持久化
+  - 模型：DeepSeek `deepseek-chat`；API Key 仅存于 Railway 环境变量，不进入仓库与前端
+- 线上验收：`scripts/acceptance.py` **15/15 通过**（健康检查、首页与移动端 viewport、静态资源、
+  在线模型已配置、Ollama 关闭、SSE 事件顺序、回答非空、历史 2 条、连续对话 4 条、
+  用户 B 无会话、越权 403、Ollama 503）。
+- 另做重启持久化测试：同一浏览器 Cookie 在「重新部署」后仍能读取此前历史 → Neon 持久化生效。
+- 免费额度注意：Railway 免费实例无流量时会休眠，首次打开约 10 秒冷启动；
+  Neon 免费库有存储与连接数上限。长期公开运营建议升级付费，或迁到自有服务器（[DEPLOY.md](DEPLOY.md)）。
 
 ## 十、文档
 
-- [RENDER.md](RENDER.md)：Render 免费部署（推荐；Blueprint / 手动 / 脚本三种方式）
-- [HUGGINGFACE.md](HUGGINGFACE.md)：备选免费方案（HF Spaces + Neon + DeepSeek）
+- [RAILWAY.md](RAILWAY.md)：Railway 实际部署记录、环境变量与复现步骤（当前线上方案）
+- [RENDER.md](RENDER.md)：Render 部署教程（备用；创建资源需绑卡）
+- [HUGGINGFACE.md](HUGGINGFACE.md)：备选免费方案（HF Spaces 需 PRO 才能跑 Docker）
 - [DEPLOY.md](DEPLOY.md)：自有服务器部署（Docker、域名、HTTPS、验证、备份、更新）
 - [POSTGRES.md](POSTGRES.md)：表结构、索引、SQLite 迁移、备份恢复
 - [API_PROVIDERS.md](API_PROVIDERS.md)：各在线模型接入步骤与错误排查
