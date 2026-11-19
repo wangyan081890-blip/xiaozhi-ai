@@ -19,23 +19,27 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import db, ollama
+from app import accounts, db, dev, ollama
 from app.auth import ensure_user, parse_cookie, set_identity_cookie
 from app.config import (
+    ADMIN_USERNAMES,
+    AGENT_ENABLED,
     APP_NAME,
     APP_VERSION,
     COOKIE_NAME,
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
     DEFAULT_SYSTEM_PROMPT,
+    LOGIN_RATE_LIMIT,
     MAX_CONCURRENT,
     MAX_HISTORY_MESSAGES,
     OLLAMA_ENABLED,
     PROVIDERS,
     RATE_LIMIT_PER_MINUTE,
+    REGISTRATION_OPEN,
 )
 from app.providers import ProviderError, chat_with_model, list_models, provider_health, stream_chat
-from app.schemas import ChatRequest
+from app.schemas import ChatRequest, DevApproveIn, DevTaskIn, LoginIn, RegisterIn
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -97,11 +101,17 @@ async def identity_and_cache(request: Request, call_next):
     response = await call_next(request)
 
     if new_user:
-        set_identity_cookie(response, uid, request)
-        try:
-            db.touch_user(uid)
-        except Exception:  # noqa: BLE001 - 数据库故障时不阻塞页面
-            pass
+        # 登录/注册接口已经下发账号 Cookie 时，中间件不要再覆盖成匿名身份。
+        already_set = any(
+            header.startswith(f"{COOKIE_NAME}=")
+            for header in response.headers.getlist("set-cookie")
+        )
+        if not already_set:
+            set_identity_cookie(response, uid, request)
+            try:
+                db.touch_user(uid)
+            except Exception:  # noqa: BLE001 - 数据库故障时不阻塞页面
+                pass
 
     path = request.url.path
     if path == "/" or path.endswith(".html"):
@@ -263,10 +273,226 @@ def providers():
     return {"default": DEFAULT_PROVIDER, "providers": provider_health()}
 
 
+# ---------------------------------------------------------------------------
+# 账号：注册 / 登录 / 登出
+# ---------------------------------------------------------------------------
+_login_lock = threading.Lock()
+_login_buckets: dict[str, list[float]] = {}
+
+
+def check_login_limit(ip: str) -> None:
+    if LOGIN_RATE_LIMIT <= 0:
+        return
+    now = time.time()
+    window_start = now - 60
+    with _login_lock:
+        bucket = [stamp for stamp in _login_buckets.get(ip, []) if stamp > window_start]
+        if len(bucket) >= LOGIN_RATE_LIMIT:
+            _login_buckets[ip] = bucket
+            raise HTTPException(status_code=429, detail="尝试过于频繁，请稍后再试")
+        bucket.append(now)
+        _login_buckets[ip] = bucket
+
+
+def current_account(request: Request) -> dict | None:
+    row = db.get_user(user_id(request))
+    if not row or not row.get("username"):
+        return None
+    return {
+        "user_id": row["user_id"],
+        "username": row["username"],
+        "role": row["role"] or "user",
+        "is_admin": (row["role"] or "user") == "admin",
+    }
+
+
+def _auth_response(payload: dict, request: Request, user_id_value: str) -> JSONResponse:
+    response = JSONResponse(payload)
+    set_identity_cookie(response, user_id_value, request)
+    return response
+
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    account = current_account(request)
+    return {
+        "authenticated": bool(account),
+        "user": account,
+        "registration_open": REGISTRATION_OPEN,
+        "agent_enabled": AGENT_ENABLED,
+        "first_user_admin": db.count_accounts() == 0,
+        "admin_usernames": list(ADMIN_USERNAMES),
+    }
+
+
+@app.post("/api/auth/register")
+def auth_register(payload: RegisterIn, request: Request):
+    check_login_limit(client_ip(request))
+    if not REGISTRATION_OPEN:
+        raise HTTPException(status_code=403, detail="当前未开放注册，请联系管理员")
+    try:
+        created = accounts.register(payload.username, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _auth_response(
+        {
+            "ok": True,
+            "user": {
+                "user_id": created["user_id"],
+                "username": created["username"],
+                "role": created["role"],
+                "is_admin": created["role"] == "admin",
+            },
+        },
+        request,
+        created["user_id"],
+    )
+
+
+@app.post("/api/auth/login")
+def auth_login(payload: LoginIn, request: Request):
+    check_login_limit(client_ip(request))
+    account = accounts.login(payload.username, payload.password)
+    if not account:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    return _auth_response(
+        {
+            "ok": True,
+            "user": {
+                "user_id": account["user_id"],
+                "username": account["username"],
+                "role": account["role"],
+                "is_admin": account["role"] == "admin",
+            },
+        },
+        request,
+        account["user_id"],
+    )
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request):
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return response
+
+
 @app.get("/api/me")
 def me(request: Request):
     uid = user_id(request)
-    return {"user_id": uid, "hint": "换浏览器/清 Cookie 会得到新的匿名身份"}
+    account = current_account(request)
+    return {
+        "user_id": uid,
+        "authenticated": bool(account),
+        "user": account,
+        "hint": "登录后可跨浏览器保留账号；未登录时按浏览器匿名隔离",
+    }
+
+
+# ---------------------------------------------------------------------------
+# AI 开发系统（仅管理员）
+# ---------------------------------------------------------------------------
+def require_admin(request: Request) -> dict:
+    account = current_account(request)
+    if not account:
+        raise HTTPException(status_code=401, detail="请先登录管理员账号")
+    if not account["is_admin"]:
+        raise HTTPException(status_code=403, detail="只有管理员可以使用 AI 开发系统")
+    return account
+
+
+@app.get("/api/dev/info")
+def dev_info(request: Request):
+    require_admin(request)
+    return dev.info()
+
+
+@app.get("/api/dev/tasks")
+def dev_tasks(request: Request, limit: int = 30):
+    require_admin(request)
+    return {"tasks": db.list_dev_tasks(max(1, min(limit, 100)))}
+
+
+@app.post("/api/dev/tasks")
+def dev_create_task(payload: DevTaskIn, request: Request):
+    account = require_admin(request)
+    try:
+        task = dev.create_task(account["user_id"], payload.title, payload.requirement)
+    except dev.DevError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "task": task}
+
+
+@app.get("/api/dev/tasks/{task_id}")
+def dev_task_detail(task_id: str, request: Request):
+    require_admin(request)
+    task = db.get_dev_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return {
+        "task": task,
+        "events": db.list_dev_events(task_id),
+        "versions": db.list_dev_versions(20),
+    }
+
+
+@app.post("/api/dev/tasks/{task_id}/cancel")
+def dev_cancel_task(task_id: str, request: Request):
+    require_admin(request)
+    try:
+        return {"ok": True, "task": dev.cancel_task(task_id)}
+    except dev.DevError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/dev/tasks/{task_id}/approve")
+def dev_approve_task(task_id: str, payload: DevApproveIn, request: Request):
+    require_admin(request)
+    try:
+        return {"ok": True, "task": dev.approve(task_id, payload.action, payload.note)}
+    except dev.DevError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/dev/tasks/{task_id}/rollback")
+def dev_rollback_task(task_id: str, request: Request):
+    require_admin(request)
+    try:
+        return {"ok": True, "task": dev.rollback(task_id)}
+    except dev.DevError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/dev/callback")
+async def dev_agent_callback(request: Request):
+    body = await request.body()
+    if not dev.verify_signature(body, request.headers.get("x-dev-signature")):
+        raise HTTPException(status_code=401, detail="签名校验失败")
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="回调内容不是合法 JSON") from exc
+    try:
+        dev.handle_agent_callback(payload)
+    except dev.DevError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
+
+
+@app.post("/api/dev/deploy-callback")
+async def dev_deploy_callback(request: Request):
+    body = await request.body()
+    if not dev.verify_signature(body, request.headers.get("x-dev-signature")):
+        raise HTTPException(status_code=401, detail="签名校验失败")
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="回调内容不是合法 JSON") from exc
+    try:
+        dev.handle_deploy_callback(payload)
+    except dev.DevError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
