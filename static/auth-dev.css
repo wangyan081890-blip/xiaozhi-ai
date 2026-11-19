@@ -1,0 +1,43 @@
+/* ---------------- 账号与 AI 开发中心 ---------------- */
+.auth-btn{flex:none;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:10px;padding:7px 12px;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s}
+.auth-btn:hover{border-color:var(--accent);color:var(--accent)}
+.auth-btn.signed{background:linear-gradient(135deg,rgba(59,130,246,.12),rgba(139,92,246,.12));border-color:transparent;color:var(--accent)}
+.dev-btn{flex:none;border:none;border-radius:10px;padding:7px 12px;font-size:13px;cursor:pointer;color:#fff;background:linear-gradient(135deg,#2563eb,#7c3aed)}
+.dev-btn:hover{filter:brightness(1.08)}
+.modal-layer{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(10,15,30,.55);backdrop-filter:blur(4px)}
+.modal-layer[hidden]{display:none}
+.modal-card{position:relative;width:min(420px,100%);max-height:88vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:24px;box-shadow:0 24px 70px rgba(6,12,28,.35)}
+.modal-card.wide{width:min(680px,100%)}
+.modal-card h2{margin:0 0 14px;font-size:19px}
+.modal-close{position:absolute;right:14px;top:12px;width:30px;height:30px;border-radius:9px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer}
+.modal-close:hover{color:var(--text);border-color:var(--accent)}
+.auth-tabs{display:flex;gap:8px;margin-bottom:16px}
+.auth-tab{flex:1;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:10px;padding:8px;cursor:pointer;font-size:14px}
+.auth-tab.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.field{display:block;margin-bottom:12px}
+.field span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.field input,.field textarea{width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);padding:10px 12px;font-size:14px;font-family:inherit;outline:none}
+.field input:focus,.field textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.18)}
+.field textarea{resize:vertical;min-height:88px}
+.auth-error{margin:0 0 12px;padding:9px 12px;border-radius:9px;background:rgba(239,68,68,.12);color:#ef4444;font-size:13px}
+.auth-error[hidden]{display:none}
+.primary-btn{border:none;border-radius:10px;padding:10px 16px;font-size:14px;color:#fff;background:linear-gradient(135deg,#2563eb,#7c3aed);cursor:pointer}
+.primary-btn:disabled{opacity:.6;cursor:not-allowed}
+.ghost-btn{border:1px solid var(--border);border-radius:10px;padding:9px 14px;font-size:13px;background:transparent;color:var(--text);cursor:pointer}
+.ghost-btn:hover{border-color:var(--accent);color:var(--accent)}
+.auth-hint{margin:14px 0 0;font-size:12px;line-height:1.6;color:var(--muted)}
+.dev-note{margin:0 0 14px;font-size:12px;line-height:1.6;color:var(--muted)}
+.dev-form-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dev-status{font-size:12px;color:var(--muted)}
+.dev-list{margin-top:16px;display:flex;flex-direction:column;gap:10px}
+.dev-empty{padding:18px;text-align:center;font-size:13px;color:var(--muted);border:1px dashed var(--border);border-radius:12px}
+.dev-item{border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--bg)}
+.dev-item-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dev-item-title{font-weight:600;font-size:14px}
+.dev-badge{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(59,130,246,.14);color:var(--accent)}
+.dev-badge.failed{background:rgba(239,68,68,.14);color:#ef4444}
+.dev-badge.done{background:rgba(16,185,129,.14);color:#10b981}
+.dev-item-meta{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.6;word-break:break-word}
+.dev-item-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.dev-item-actions .ghost-btn{padding:6px 12px;font-size:12px}
+@media (max-width:720px){.auth-btn,.dev-btn{padding:6px 9px;font-size:12px}.modal-card{padding:20px 16px}}
