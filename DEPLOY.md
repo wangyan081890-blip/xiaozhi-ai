@@ -1,4 +1,7 @@
-# 云端部署教程（从零到上线）
+# 自有服务器部署教程（从零到上线）
+
+> 当前线上版本跑在 Railway（免费版）+ Neon + DeepSeek，见 [RAILWAY.md](RAILWAY.md)。
+> 本文用于把同一份代码部署到自己的云服务器（Docker Compose + Caddy + PostgreSQL）。
 
 本文把「小智 AI 云端版」部署到一台公网服务器，最终得到
 `https://你的域名/`（或 `http://服务器IP/`）可访问的多用户在线助手。
