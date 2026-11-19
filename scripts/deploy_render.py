@@ -97,6 +97,12 @@ def render(method: str, path: str, body: dict | None = None) -> dict | list | st
         body=body,
     )
     if status >= 300:
+        if status == 402:
+            raise SystemExit(
+                "Render 要求账户先绑定付款方式（免费实例也需要，正常不会扣费）。\n"
+                "处理：打开 https://dashboard.render.com/billing 添加银行卡后重新运行本脚本。\n"
+                f"原始响应：{payload}"
+            )
         raise SystemExit(f"Render API {method} {path} 失败（HTTP {status}）：{payload}")
     return payload
 
@@ -342,6 +348,10 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="只校验凭据")
     parser.add_argument("--dry-run", action="store_true", help="校验并打印将要创建的资源")
     parser.add_argument("--repo-url", default="", help="已有 GitHub 仓库地址（跳过建仓/上传）")
+    parser.add_argument("--web-only", action="store_true",
+                        help="不创建 Render PostgreSQL，用外部/临时数据库")
+    parser.add_argument("--database-url", default="",
+                        help="配合 --web-only 使用的 DATABASE_URL（默认容器内 SQLite）")
     args = parser.parse_args()
 
     if not os.environ.get("RENDER_API_KEY", "").strip():
@@ -369,14 +379,22 @@ def main() -> None:
 
     if args.dry_run:
         log(f"仓库：{repo_url or '将用 GITHUB_TOKEN 创建 GitHub 私有仓库并上传代码'}")
-        log(f"将创建：PostgreSQL(free, {region}) + Web 服务(docker, free, {region})")
+        if args.web_only:
+            log(f"将创建：Web 服务(docker, free, {region})，数据库={args.database_url or '容器内 SQLite'}")
+        else:
+            log(f"将创建：PostgreSQL(free, {region}) + Web 服务(docker, free, {region})")
         log("dry-run 结束，未改动任何资源")
         return
 
     if not repo_url:
         repo_url, _, _ = ensure_repo()
 
-    pg_id, database_url = create_postgres(owner_id, region)
+    if args.web_only:
+        database_url = args.database_url or "sqlite:////app/data/xiaozhi.db"
+        pg_id = "none"
+        log(f"跳过 Render PostgreSQL；DATABASE_URL={database_url}")
+    else:
+        pg_id, database_url = create_postgres(owner_id, region)
     svc_id, name = create_service(owner_id, repo_url, region)
     try:
         set_env(svc_id, database_url)
