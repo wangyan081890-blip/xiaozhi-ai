@@ -1,0 +1,24 @@
+# Caddy 反向代理配置。
+# SITE_ADDRESS 为空时默认监听 :80（本地/内网调试）；
+# 绑定域名后 Caddy 会自动申请并续期 Let's Encrypt HTTPS 证书。
+{$SITE_ADDRESS::80} {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	reverse_proxy app:8000 {
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
