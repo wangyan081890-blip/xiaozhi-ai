@@ -8,6 +8,10 @@ Render 是免费 PaaS：连上 GitHub 仓库即可构建 Docker 镜像、分配 
 > 免费额度提醒：免费 Web 实例 **15 分钟无请求会休眠**，下次访问需 30–60 秒冷启动；
 > 免费 PostgreSQL **30 天后到期**，到期前可在 Render 升级，或把 `DATABASE_URL` 换到 Neon。
 > 这些都只影响体验，不影响“别人打开网址就能用”。
+>
+> 另外（2026-11 实测）：Render 现在**创建免费实例也要求账户先绑定付款方式**（银行卡），
+> 免费实例本身仍是 $0。没有卡会收到 `HTTP 402 Payment information is required`。
+> 若不便绑卡，请改用 `HUGGINGFACE.md` 的零绑卡方案。
 
 ---
 
