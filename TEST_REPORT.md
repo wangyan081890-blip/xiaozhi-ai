@@ -232,7 +232,38 @@ set DATABASE_URL=postgresql+psycopg://用户:密码@127.0.0.1:5432/xiaozhi
 
 ## 五、已知限制
 
-- 身份为匿名 Cookie，不是账号体系；清 Cookie 后无法找回旧会话（数据仍在库中）。
+- 支持匿名 Cookie 与账号两套身份；登录后会话绑定账号，匿名历史不会自动迁移。
 - 限流为单进程内存实现，多 worker/多实例时需换成 Redis。
 - 并发保护 `BoundedSemaphore` 也是单进程级。
 - SQLite 仅适合本地开发，生产请使用 PostgreSQL。
+
+## 六、账号与 AI 自主开发系统测试（2026-11-19）
+
+### 1. 自动化测试
+
+```
+pytest tests/ -q  →  32 passed, 1 skipped
+```
+
+覆盖：密码哈希与校验、注册/登录/登出、大小写与非法参数、会话隔离、首个账号管理员、
+迁移备份与补列幂等、开发代理路径/密钥/大小限制、任务权限、回调签名与落库。
+
+跳过项：首账号 admin 用例（测试库已有账号时跳过，属预期）。
+
+### 2. GitHub Actions 端到端
+
+| 环节 | 结果 |
+| --- | --- |
+| 创建任务 | task `fd26456a942b45bd95ab819e14cdf60a`，需求为 README 增加一行说明 |
+| Agent workflow（`agent.yml`） | run 44480633410，成功；自动改码并跑 pytest / node --check |
+| 生成 PR | PR #1，仅 `README.md +1 行` |
+| 管理员批准 | 页面「批准并部署」→ 状态 `deploying` |
+| 部署 workflow（`deploy.yml`） | run 44480835309，全部步骤成功（pytest、docker build、railway up、/healthz 轮询、回调） |
+| 部署后验收 | `acceptance.py` **15/15 通过**（db dialect=postgresql） |
+| 回滚能力 | 部署失败回调会触发 App 调 Railway 重新部署上一成功版本（代码路径已实现） |
+
+### 3. 未验证项
+
+- 真实失败场景下的自动回滚未人为触发（避免影响线上）；回滚代码与部署回调已单测覆盖。
+- 手机真机未测试，仅 390×844 视口模拟。
+- 多实例限流/并发未验证（当前 Railway 单实例）。
