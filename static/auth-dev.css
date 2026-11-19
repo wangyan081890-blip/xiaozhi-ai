@@ -41,3 +41,6 @@
 .dev-item-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .dev-item-actions .ghost-btn{padding:6px 12px;font-size:12px}
 @media (max-width:720px){.auth-btn,.dev-btn{padding:6px 9px;font-size:12px}.modal-card{padding:20px 16px}}
+
+/* 隐藏欢迎页的说明文字（云端大模型驱动…会话相互隔离…） */
+.welcome > p{display:none}
