@@ -49,6 +49,17 @@ railway up
 | `COOKIE_SECURE` | 否 | 线上填 `true`（HTTPS） |
 | `OLLAMA_ENABLED` | 否 | 线上填 `false` |
 | `MAX_CONCURRENT` | 否 | 免费实例建议 `2` |
+| `AGENT_ENABLED` | 否 | 启用 AI 自主开发系统时填 `true` |
+| `GITHUB_TOKEN` | 否 | GitHub PAT（repo 权限），用于建 PR / 派发 workflow |
+| `GITHUB_REPO` | 否 | 如 `用户名/xiaozhi-ai` |
+| `GITHUB_BRANCH` | 否 | 默认 `main` |
+| `DEV_CALLBACK_SECRET` | 否 | 与仓库 Secret 相同的 HMAC 密钥 |
+| `APP_BASE_URL` | 否 | 线上地址，用于回调 |
+| `RAILWAY_TOKEN` / `RAILWAY_PROJECT_ID` / `RAILWAY_ENVIRONMENT_ID` / `RAILWAY_SERVICE_ID` / `RAILWAY_PUBLIC_URL` | 否 | 自动部署与回滚使用（Actions 部署 workflow 需要同名 Secrets） |
+
+> 开启 AI 开发系统时，还需在 GitHub 仓库 **Settings → Secrets and variables → Actions** 配置
+> `DEEPSEEK_API_KEY`、`GH_TOKEN`、`APP_BASE_URL`、`DEV_CALLBACK_SECRET`、`RAILWAY_TOKEN`、
+> `RAILWAY_PROJECT_ID`、`RAILWAY_ENVIRONMENT_ID`、`RAILWAY_SERVICE_ID`、`RAILWAY_PUBLIC_URL`。
 
 生成 `SECRET_KEY`：
 
