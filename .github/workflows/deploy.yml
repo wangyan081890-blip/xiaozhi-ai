@@ -1,0 +1,95 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        required: true
+      commit_sha:
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TASK_ID: ${{ inputs.task_id }}
+      TARGET_SHA: ${{ inputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha != '' && inputs.commit_sha || 'main' }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest httpx
+
+      - name: Automated tests
+        run: |
+          python -m pytest tests -q -p no:cacheprovider
+          node --check static/app.js
+
+      - name: Validate Docker build
+        run: docker build -t xiaozhi-ai:ci .
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        id: railway
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -o pipefail
+          railway up --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
+            --environment "${{ secrets.RAILWAY_ENVIRONMENT_ID }}" \
+            --service "${{ secrets.RAILWAY_SERVICE_ID }}" \
+            --detach -y 2>&1 | tee /tmp/railway.log
+          grep -Eo 'deployment[ =][0-9a-f-]{36}' /tmp/railway.log | tail -n1 | grep -Eo '[0-9a-f-]{36}' > /tmp/deployment_id || true
+          echo "deployment_id=$(cat /tmp/deployment_id 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for health check
+        env:
+          PUBLIC_URL: ${{ secrets.RAILWAY_PUBLIC_URL }}
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$PUBLIC_URL/healthz" || true)
+            echo "healthz: $code (attempt $i)"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "health check failed" >&2
+          exit 1
+
+      - name: Report success
+        if: success()
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          DEV_CALLBACK_SECRET: ${{ secrets.DEV_CALLBACK_SECRET }}
+        run: |
+          python scripts/deploy_callback.py --task-id "$TASK_ID" --status success \
+            --deployment-id "$(cat /tmp/deployment_id 2>/dev/null || true)"
+
+      - name: Report failure
+        if: failure()
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          DEV_CALLBACK_SECRET: ${{ secrets.DEV_CALLBACK_SECRET }}
+        run: |
+          python scripts/deploy_callback.py --task-id "$TASK_ID" --status failed \
+            --error "部署或健康检查失败，请查看 GitHub Actions 日志" || true
