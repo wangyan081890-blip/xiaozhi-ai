@@ -28,7 +28,6 @@ license: mit
 - 前端：响应式聊天界面、Markdown/代码高亮、复制/重新生成/停止、深浅色主题。
 - 萌宠助手：点击互动、长按拖动、连点三下进入「小智跳台阶」小游戏（桌面与手机均可用）。
 - 运维：缓存控制、限流、并发保护、健康检查；Railway 自动重启与 HTTPS（自托管时由 Docker + Caddy 负责）。
-- AI 开发系统：管理员可在网页内提交需求，AI 自动改代码、跑测试并发起 PR。
 
 ## 二、架构
 
@@ -136,6 +135,12 @@ python scripts/test_cloud.py --phase2
 | `DEEPSEEK_API_KEY` 等 | 各在线服务商密钥 | 空 |
 | `DEFAULT_PROVIDER` | 默认服务商 | 首个已配置在线服务 |
 | `OLLAMA_ENABLED` | 是否启用本地 Ollama 测试 | `false` |
+| `ADMIN_USERNAMES` | 逗号分隔的管理员用户名白名单（注册时直接给管理员） | 空 |
+| `AGENT_ENABLED` | 是否启用 AI 自主开发系统 | `false` |
+| `GITHUB_TOKEN` | 服务端调用 GitHub API（建 PR、派发 workflow）的 Token | 空 |
+| `GITHUB_REPO` | 代码仓库，如 `user/xiaozhi-ai` | 空 |
+| `DEV_CALLBACK_SECRET` | Actions 回调 App 的 HMAC 密钥（两边一致） | 空 |
+| `RAILWAY_TOKEN` / `RAILWAY_PROJECT_ID` / `RAILWAY_ENVIRONMENT_ID` / `RAILWAY_SERVICE_ID` | 自动部署与回滚使用 | 空 |
 | `MAX_HISTORY_MESSAGES` | 携带的历史消息条数 | 24 |
 | `RATE_LIMIT_PER_MINUTE` | 每 IP 每分钟请求上限 | 30 |
 | `MAX_CONCURRENT` | 同时生成的最大请求数 | 4 |
@@ -151,7 +156,12 @@ python scripts/test_cloud.py --phase2
 | GET | `/api/status` | 服务状态、默认模型、服务商配置 |
 | GET | `/api/models` | 可用模型列表 |
 | GET | `/api/providers` | 服务商列表 |
-| GET | `/api/me` | 当前匿名用户 |
+| GET | `/api/me` | 当前用户 |
+| POST | `/api/auth/register` / `/api/auth/login` / `/api/auth/logout` | 账号注册、登录、退出 |
+| GET | `/api/auth/status` | 登录状态、是否开放注册、AI 开发是否启用 |
+| GET / POST | `/api/dev/tasks` | 开发任务列表 / 提交需求（管理员） |
+| POST | `/api/dev/tasks/{id}/approve`、`/cancel`、`/rollback` | 批准部署、取消、回滚（管理员） |
+| POST | `/api/dev/callback`、`/api/dev/deploy-callback` | GitHub Actions 签名回调（仅服务端） |
 | GET / POST | `/api/sessions` | 会话列表 / 新建会话 |
 | GET | `/api/history?session_id=` | 会话历史（越权 403） |
 | DELETE | `/api/session?session_id=` | 删除会话 |
@@ -164,10 +174,31 @@ python scripts/test_cloud.py --phase2
   内容为 `uid.HMAC(uid)`，服务端校验签名，无法伪造他人 uid。
 - 每个会话归属一个 `user_id`；读写历史前校验归属，越权返回 403。
 - 同一浏览器的多个标签共享身份；换浏览器 / 清 Cookie 会得到新的匿名身份（数据仍在库中）。
-- 注意：这是「匿名隔离」，不是账号体系。如需登录、找回历史、跨设备同步，
-  后续可在 `users` 表上扩展邮箱/密码或第三方登录。
+- 注册登录后，账号 uid 取代匿名 uid：`users` 表保存 `username` / `password_hash`（PBKDF2-HMAC-SHA256，
+  310000 次迭代 + 随机盐）/ `role`，密码永不明文落库；登录失败统一提示，避免枚举用户名。
+- 首个注册账号自动成为管理员；也可用 `ADMIN_USERNAMES` 指定。只有管理员能进入 AI 开发系统。
 
-## 八、安全说明
+## 八、账号与 AI 自主开发系统
+
+- 页面右上角「登录 / 注册」：注册后聊天记录与账号绑定，换设备登录可继续；未登录仍按浏览器匿名保存。
+- 管理员登录后顶部出现「AI 开发」按钮：
+  1. 填写需求（标题 + 描述/验收标准），提交后服务端派发 GitHub Actions `agent.yml`；
+  2. Agent 在 Actions 的隔离环境中调用 DeepSeek，按工具循环读文件、改代码、跑 `pytest` 与 `node --check`，
+     通过后创建 `ai/task-<id>` 分支并开 PR，签名回调 App；
+  3. 管理面板显示任务状态与 PR，点击「批准并部署」→ squash 合并 PR → 触发 `deploy.yml`
+     （pytest + docker build + `railway up` + `/healthz` 轮询）；
+  4. 健康检查失败会自动回调 App，由 App 调 Railway 回滚到上一个成功部署。
+- 安全护栏：
+  - Agent 只能写 `app/`、`static/`、`docs/`、`README.md`，禁止改 `tests/`、`.github/`、`scripts/`、
+    `Dockerfile`、依赖与部署配置；单次最多 8 个文件、单文件 60KB。
+  - 生产容器不执行用户代码；改码发生在 GitHub Actions，仓库 Token / 部署 Token 只在服务端与仓库 Secrets。
+  - 回调使用 HMAC-SHA256 签名；数据库升级前自动备份旧表（`backup_<ts>_<rand>_<name>`）。
+  - 测试失败的任务不会进入部署环节；部署失败自动回滚。
+- 需要配置：服务端 `AGENT_ENABLED=true`、`GITHUB_TOKEN`、`GITHUB_REPO`、`DEV_CALLBACK_SECRET` 与 Railway 相关变量；
+  仓库 Secrets 配置 `DEEPSEEK_API_KEY`、`GH_TOKEN`、`APP_BASE_URL`、`DEV_CALLBACK_SECRET`、
+  `RAILWAY_TOKEN`、`RAILWAY_PROJECT_ID`、`RAILWAY_ENVIRONMENT_ID`、`RAILWAY_SERVICE_ID`、`RAILWAY_PUBLIC_URL`。
+
+## 九、安全说明
 
 - API Key 只存在于服务端环境变量，前端永远拿不到。
 - 页面禁止缓存（`no-store`），静态资源 `no-cache`。
@@ -175,7 +206,7 @@ python scripts/test_cloud.py --phase2
 - Caddy 自动 HTTPS；容器以非 root 用户运行；数据库不对公网暴露端口。
 - 生产环境请务必：固定 `SECRET_KEY`、使用强数据库密码、只开放 80/443。
 
-## 九、当前状态（诚实说明）
+## 十、当前状态（诚实说明）
 
 - **已部署到公网**（2026-11-19）：<https://xiaozhi-ai-production.up.railway.app>
   - 平台：Railway 免费 Web 服务（Docker，新加坡区，自动 HTTPS，域名 `*.up.railway.app`）
@@ -185,10 +216,16 @@ python scripts/test_cloud.py --phase2
   在线模型已配置、Ollama 关闭、SSE 事件顺序、回答非空、历史 2 条、连续对话 4 条、
   用户 B 无会话、越权 403、Ollama 503）。
 - 另做重启持久化测试：同一浏览器 Cookie 在「重新部署」后仍能读取此前历史 → Neon 持久化生效。
+- **账号与 AI 自主开发系统已上线并跑通真实闭环**（2026-11-19）：
+  - 注册/登录已可用，首个注册账号为管理员；密码 PBKDF2 加盐哈希，Cookie 签名防伪造。
+  - 真实任务 `fd26456a…`：Agent 在 GitHub Actions 中改 README → 自动跑 pytest / node --check → 开 PR #1
+    → 管理员批准 → `deploy.yml` 完成 docker build + `railway up` + `/healthz` 轮询 → 任务状态 `deployed`；
+    部署后验收再次 **15/15 通过**。
+  - 回滚：部署回调失败时 App 调 Railway 重新部署上一个成功版本；也可在管理面板手动回滚。
 - 免费额度注意：Railway 免费实例无流量时会休眠，首次打开约 10 秒冷启动；
   Neon 免费库有存储与连接数上限。长期公开运营建议升级付费，或迁到自有服务器（[DEPLOY.md](DEPLOY.md)）。
 
-## 十、文档
+## 十一、文档
 
 - [RAILWAY.md](RAILWAY.md)：Railway 实际部署记录、环境变量与复现步骤（当前线上方案）
 - [RENDER.md](RENDER.md)：Render 部署教程（备用；创建资源需绑卡）
