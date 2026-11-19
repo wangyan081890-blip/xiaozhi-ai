@@ -1,8 +1,9 @@
 # 在线测试报告
 
-- 测试日期：2026-11-18
+- 测试日期：2026-11-18（本地）/ 2026-11-19（线上）
 - 版本：小智 AI 云端版 2.0.0
-- 结论：**核心链路已在本地端到端验证通过；公网部署尚未执行**（缺服务器与 API Key，详见文末）。
+- 线上地址：<https://xiaozhi-ai-production.up.railway.app>
+- 结论：**本地端到端与公网线上验收均通过**（Railway + Neon PostgreSQL + DeepSeek，15/15）。
 
 ## 一、测试环境
 
@@ -158,6 +159,39 @@ EXCEPTIONS []
 
 该脚本在真实上线后可直接对公网地址执行，作为最终验收证据。
 
+### 12. 公网线上验收（Railway，2026-11-19）
+
+对 `https://xiaozhi-ai-production.up.railway.app` 执行：
+
+```
+python scripts/acceptance.py --base https://xiaozhi-ai-production.up.railway.app
+```
+
+结果：
+
+```
+[PASS] healthz → {"ok": true, "db": {"ok": true, "dialect": "postgresql"}}
+[PASS] 首页 / 移动端 viewport / 前端脚本 / 萌宠资源
+[PASS] 在线模型已配置 → deepseek / deepseek-chat
+[PASS] Ollama 已关闭
+[PASS] SSE 事件顺序 start → delta* → done → end
+[PASS] 回答非空 / 历史落库 2 条 / 连续对话 4 条
+[PASS] 用户 B 无会话 / 越权 403 / Ollama 503
+共 15 项，通过 15 项，失败 0 项。
+```
+
+补充验证：
+
+| 项目 | 结果 |
+| --- | --- |
+| 健康检查数据库方言 | `postgresql`（Neon）✅ |
+| 重新部署后历史保留 | 同一 Cookie 在 Redeploy 后仍能读取历史（Neon 持久化）✅ |
+| 前端线上渲染（Edge headless） | 状态“在线模型已连接 · DeepSeek”，萌宠、响应式布局正常 ✅ |
+| DeepSeek 真实流式回答 | 正常返回中文内容 ✅ |
+
+> 说明：本机无法直连 huggingface.co 且 HF 免费账号不能运行 Docker Space（402 需 PRO）；
+> Render 免费实例要求绑卡（402）；ClawCloud 在本机 DNS 不可达。最终采用 Railway 免费版完成上线。
+
 ## 三、复现方式
 
 ```bash
@@ -186,18 +220,15 @@ PostgreSQL 版只需追加：
 set DATABASE_URL=postgresql+psycopg://用户:密码@127.0.0.1:5432/xiaozhi
 ```
 
-## 四、尚未验证的部分（诚实说明）
+## 四、验证范围说明
 
-| 项目 | 原因 | 状态 |
-| --- | --- | --- |
-| Docker 镜像构建 / compose 启动 | 本机未安装 Docker | 未运行 |
-| Caddy 自动 HTTPS | 需要公网域名与服务器 | 未运行 |
-| 真实在线模型（DeepSeek 等） | 没有任何服务商 API Key | 未调用 |
-| 公网服务器部署 | 无云账号 / 无服务器 | **未部署** |
-| 手机真机访问 | 需部署后验证 | 未验证（响应式布局已在 localhost 用 390×844 模拟） |
-
-这些属于「部署阶段」验证项：拿到服务器与 Key 后，按
-[DEPLOY.md](DEPLOY.md) 执行，我可以继续做线上验收并补全本报告。
+| 项目 | 状态 |
+| --- | --- |
+| Docker 镜像构建 | ✅ 由 Railway 远程构建成功（`Dockerfile` 生产生效） |
+| Docker Compose + Caddy 自托管 | 未运行（线上用 Railway 边缘 TLS，未使用 Caddy；compose 仅备选自托管） |
+| 真实在线模型 | ✅ DeepSeek `deepseek-chat` 线上实测可用 |
+| 公网部署 | ✅ Railway 免费版已上线（新加坡区） |
+| 手机真机 | 未用真机；已在 390×844 视口模拟并通过（响应式、萌宠、SSE） |
 
 ## 五、已知限制
 
